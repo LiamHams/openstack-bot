@@ -26,5 +26,5 @@ A comprehensive Telegram bot for monitoring and managing OpenStack VPS instances
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/LiamsHams/openstack-bot.git
+   git clone https://github.com/LiamHams/openstack-bot.git
    cd openstack-bot
