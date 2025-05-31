@@ -33,29 +33,50 @@ fi
 
 # Create bot directory
 BOT_DIR="/opt/openstack-bot"
-echo "📁 Creating bot directory at $BOT_DIR..."
-mkdir -p $BOT_DIR
-cd $BOT_DIR
+CURRENT_DIR=$(pwd)
 
-# Download or copy bot files (assuming they're in current directory)
-echo "📥 Setting up bot files..."
-if [ -f "main.py" ]; then
-    cp main.py $BOT_DIR/
-    cp requirements.txt $BOT_DIR/
-    cp config.env $BOT_DIR/
+echo "📁 Setting up bot directory at $BOT_DIR..."
+
+# Create directory if it doesn't exist
+mkdir -p $BOT_DIR
+
+# Check if we're already in the target directory
+if [ "$CURRENT_DIR" = "$BOT_DIR" ]; then
+    echo "ℹ️ Already in target directory, files are in place"
 else
-    echo "❌ Bot files not found in current directory!"
-    echo "Please ensure main.py, requirements.txt, and config.env are present"
-    exit 1
+    echo "📥 Copying bot files from $CURRENT_DIR to $BOT_DIR..."
+    
+    # Copy files only if they exist and are different
+    for file in main.py requirements.txt config.env; do
+        if [ -f "$CURRENT_DIR/$file" ]; then
+            if [ ! -f "$BOT_DIR/$file" ] || ! cmp -s "$CURRENT_DIR/$file" "$BOT_DIR/$file"; then
+                cp "$CURRENT_DIR/$file" "$BOT_DIR/"
+                echo "✅ Copied $file"
+            else
+                echo "ℹ️ $file already up to date"
+            fi
+        else
+            echo "❌ $file not found in current directory!"
+            exit 1
+        fi
+    done
 fi
+
+# Change to bot directory
+cd $BOT_DIR
 
 # Create Python virtual environment
 echo "🔧 Creating Python virtual environment..."
-python3 -m venv venv
-source venv/bin/activate
+if [ ! -d "venv" ]; then
+    python3 -m venv venv
+    echo "✅ Virtual environment created"
+else
+    echo "ℹ️ Virtual environment already exists"
+fi
 
-# Install Python dependencies
+# Activate virtual environment and install dependencies
 echo "📚 Installing Python dependencies..."
+source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
@@ -133,7 +154,11 @@ echo -e "\n=== Recent Logs ==="
 sudo journalctl -u openstack-bot -n 20 --no-pager
 
 echo -e "\n=== Log File ==="
-tail -n 10 /opt/openstack-bot/openstack_bot.log
+if [ -f /opt/openstack-bot/openstack_bot.log ]; then
+    tail -n 10 /opt/openstack-bot/openstack_bot.log
+else
+    echo "Log file not found yet"
+fi
 EOF
 
 # Restart script
@@ -151,15 +176,19 @@ cd /opt/openstack-bot
 sudo systemctl stop openstack-bot
 
 # Backup current config
-sudo cp config.env config.env.backup
+if [ -f config.env ]; then
+    sudo cp config.env config.env.backup
+fi
 
 # Pull latest changes (if using git)
 if [ -d ".git" ]; then
     sudo -u openstackbot git pull
 fi
 
-# Restore config
-sudo cp config.env.backup config.env
+# Restore config if backup exists
+if [ -f config.env.backup ]; then
+    sudo cp config.env.backup config.env
+fi
 
 # Update dependencies
 sudo -u openstackbot /opt/openstack-bot/venv/bin/pip install -r requirements.txt
@@ -171,13 +200,32 @@ EOF
 # Make scripts executable
 chmod +x $BOT_DIR/*.sh
 
+# Check if config needs to be updated
+echo ""
+echo "🔧 Checking configuration..."
+if grep -q "your_telegram_bot_token_here" $BOT_DIR/config.env; then
+    echo "⚠️ Configuration needs to be updated!"
+    CONFIG_NEEDS_UPDATE=true
+else
+    echo "ℹ️ Configuration appears to be set"
+    CONFIG_NEEDS_UPDATE=false
+fi
+
 echo ""
 echo "✅ Installation completed successfully!"
 echo ""
-echo "📋 Next steps:"
-echo "1. Edit the configuration file: nano $BOT_DIR/config.env"
-echo "2. Add your Telegram Bot Token to the config file"
-echo "3. Start the bot: $BOT_DIR/start.sh"
+
+if [ "$CONFIG_NEEDS_UPDATE" = true ]; then
+    echo "📋 IMPORTANT - Next steps:"
+    echo "1. Edit the configuration file: nano $BOT_DIR/config.env"
+    echo "2. Replace 'your_telegram_bot_token_here' with your actual bot token"
+    echo "3. Start the bot: $BOT_DIR/start.sh"
+else
+    echo "📋 Next steps:"
+    echo "1. Review the configuration file: nano $BOT_DIR/config.env"
+    echo "2. Start the bot: $BOT_DIR/start.sh"
+fi
+
 echo ""
 echo "🛠️ Available commands:"
 echo "• Start bot: $BOT_DIR/start.sh"
@@ -193,3 +241,5 @@ echo "⚠️ Don't forget to:"
 echo "1. Create a Telegram bot via @BotFather"
 echo "2. Get the bot token and add it to config.env"
 echo "3. Configure your firewall if needed"
+echo ""
+echo "🚀 To start the bot now, run: $BOT_DIR/start.sh"
