@@ -181,7 +181,7 @@ echo "🔄 OpenStack Bot Update Script"
 echo "=============================="
 
 BOT_DIR="/opt/openstack-bot"
-REPO_URL="https://github.com/LiamsHams/openstack-bot.git"
+REPO_URL="https://github.com/LiamHams/openstack-bot.git"
 BACKUP_DIR="$BOT_DIR/backup_$(date +%Y%m%d_%H%M%S)"
 
 # Function to print colored output
@@ -232,7 +232,7 @@ if [ -d ".git" ]; then
     print_status "Updating from Git repository..."
     
     # Stash any local changes to preserve config
-    sudo -u openstackbot git stash push -m "Auto-stash before update $(date)"
+    sudo -u openstackbot git stash push -m "Auto-stash before update $(date)" 2>/dev/null || true
     
     # Pull latest changes
     if sudo -u openstackbot git pull origin main; then
@@ -245,7 +245,9 @@ if [ -d ".git" ]; then
             print_success "Successfully reset to latest version"
         else
             print_error "Failed to update from Git. Restoring backup..."
-            cp $BACKUP_DIR/config.env ./
+            if [ -f "$BACKUP_DIR/config.env" ]; then
+                cp $BACKUP_DIR/config.env ./
+            fi
             systemctl start openstack-bot
             exit 1
         fi
@@ -350,7 +352,7 @@ cat > $BOT_DIR/auto-update.sh << 'EOF'
 # Usage: ./auto-update.sh [--force] [--check-only]
 
 BOT_DIR="/opt/openstack-bot"
-REPO_URL="https://github.com/LiamsHams/openstack-bot.git"
+REPO_URL="https://github.com/LiamHams/openstack-bot.git"
 LOG_FILE="$BOT_DIR/auto-update.log"
 
 # Function to log with timestamp
@@ -390,11 +392,14 @@ if [ ! -d ".git" ]; then
 fi
 
 # Fetch latest changes
-sudo -u openstackbot git fetch origin
+sudo -u openstackbot git fetch origin 2>/dev/null || {
+    log_message "ERROR: Failed to fetch from remote repository"
+    exit 1
+}
 
 # Check if updates are available
-LOCAL_COMMIT=$(sudo -u openstackbot git rev-parse HEAD)
-REMOTE_COMMIT=$(sudo -u openstackbot git rev-parse origin/main)
+LOCAL_COMMIT=$(sudo -u openstackbot git rev-parse HEAD 2>/dev/null)
+REMOTE_COMMIT=$(sudo -u openstackbot git rev-parse origin/main 2>/dev/null)
 
 if [ "$LOCAL_COMMIT" = "$REMOTE_COMMIT" ] && [ "$FORCE_UPDATE" = false ]; then
     log_message "INFO: Bot is already up to date"
