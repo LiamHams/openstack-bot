@@ -1,9 +1,4 @@
-... shell ...
-
-Let me continue with the rest of the functions:
-
-```typescriptreact file="openstack_bot_fixed.py"
-[v0-no-op-code-block-prefix]#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 OpenStack Telegram Bot
 A Telegram bot for monitoring and managing OpenStack VPS instances
