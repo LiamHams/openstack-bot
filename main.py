@@ -14,7 +14,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 import asyncio
 
 # Authorized user IDs - only these users can use the bot
-AUTHORIZED_USERS = [9521]  # Add more user IDs as needed
+AUTHORIZED_USERS = [YourTelID]  # Add more user IDs as needed
 
 def is_authorized(user_id):
     """Check if user is authorized to use the bot"""
