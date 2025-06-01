@@ -47,7 +47,7 @@ else
     echo "📥 Copying bot files from $CURRENT_DIR to $BOT_DIR..."
     
     # Copy files only if they exist and are different
-    for file in main.py requirements.txt config.env; do
+    for file in main.py requirements.txt config.env op-bot-cli.sh uninstall.sh; do
         if [ -f "$CURRENT_DIR/$file" ]; then
             if [ ! -f "$BOT_DIR/$file" ] || ! cmp -s "$CURRENT_DIR/$file" "$BOT_DIR/$file"; then
                 cp "$CURRENT_DIR/$file" "$BOT_DIR/"
@@ -56,8 +56,7 @@ else
                 echo "ℹ️ $file already up to date"
             fi
         else
-            echo "❌ $file not found in current directory!"
-            exit 1
+            echo "ℹ️ $file not found in current directory, skipping"
         fi
     done
 fi
@@ -84,6 +83,12 @@ pip install -r requirements.txt
 echo "🔐 Setting permissions..."
 chown -R openstackbot:openstackbot $BOT_DIR
 chmod +x $BOT_DIR/main.py
+if [ -f "$BOT_DIR/op-bot-cli.sh" ]; then
+    chmod +x $BOT_DIR/op-bot-cli.sh
+fi
+if [ -f "$BOT_DIR/uninstall.sh" ]; then
+    chmod +x $BOT_DIR/uninstall.sh
+fi
 
 # Create systemd service file
 echo "⚙️ Creating systemd service..."
@@ -479,55 +484,4 @@ echo "📝 Current cron jobs:"
 crontab -l | grep -E "(openstack|auto-update)" || echo "No related cron jobs found"
 echo ""
 echo "🔧 To check update logs: tail -f $BOT_DIR/auto-update.log"
-echo "🔧 To test auto-update: $BOT_DIR/auto-update.sh --check-only"
-
-EOF
-
-# Make scripts executable
-chmod +x $BOT_DIR/*.sh
-
-# Check if config needs to be updated
-echo ""
-echo "🔧 Checking configuration..."
-if grep -q "your_telegram_bot_token_here" $BOT_DIR/config.env; then
-    echo "⚠️ Configuration needs to be updated!"
-    CONFIG_NEEDS_UPDATE=true
-else
-    echo "ℹ️ Configuration appears to be set"
-    CONFIG_NEEDS_UPDATE=false
-fi
-
-echo ""
-echo "✅ Installation completed successfully!"
-echo ""
-
-if [ "$CONFIG_NEEDS_UPDATE" = true ]; then
-    echo "📋 IMPORTANT - Next steps:"
-    echo "1. Edit the configuration file: nano $BOT_DIR/config.env"
-    echo "2. Replace 'your_telegram_bot_token_here' with your actual bot token"
-    echo "3. Start the bot: $BOT_DIR/start.sh"
-else
-    echo "📋 Next steps:"
-    echo "1. Review the configuration file: nano $BOT_DIR/config.env"
-    echo "2. Start the bot: $BOT_DIR/start.sh"
-fi
-
-echo ""
-echo "🛠️ Available commands:"
-echo "• Start bot: $BOT_DIR/start.sh"
-echo "• Stop bot: $BOT_DIR/stop.sh"
-echo "• Check status: $BOT_DIR/status.sh"
-echo "• Restart bot: $BOT_DIR/restart.sh"
-echo "• Update bot: $BOT_DIR/update.sh"
-echo "• Setup Auto-Update: $BOT_DIR/setup-cron.sh"
-echo ""
-echo "📝 Logs location: $BOT_DIR/openstack_bot.log"
-echo "📊 Service logs: journalctl -u openstack-bot -f"
-echo "⚙️ Auto-Update logs: $BOT_DIR/auto-update.log"
-echo ""
-echo "⚠️ Don't forget to:"
-echo "1. Create a Telegram bot via @BotFather"
-echo "2. Get the bot token and add it to config.env"
-echo "3. Configure your firewall if needed"
-echo ""
-echo "🚀 To start the bot now, run: $BOT_DIR/start.sh"
+echo "🔧 To test auto-update: $BOT_DIR/auto-update.sh --check-only
