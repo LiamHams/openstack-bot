@@ -13,6 +13,24 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 import asyncio
 
+# Authorized user IDs - only these users can use the bot
+AUTHORIZED_USERS = [9521]  # Add more user IDs as needed
+
+def is_authorized(user_id):
+    """Check if user is authorized to use the bot"""
+    return user_id in AUTHORIZED_USERS
+
+async def check_authorization(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Check if user is authorized and send unauthorized message if not"""
+    user_id = update.effective_user.id
+    if not is_authorized(user_id):
+        await update.message.reply_text(
+            "❌ You are not authorized to use this bot.\n\n"
+            "Please contact @MmdHsn21 for access."
+        )
+        return False
+    return True
+
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -472,6 +490,10 @@ openstack = OpenStackAPI()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start command handler"""
+    # Check authorization
+    if not await check_authorization(update, context):
+        return
+    
     # Clear any stored data
     context.user_data.clear()
     
@@ -500,6 +522,17 @@ Choose an option from the menu below:
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button callbacks"""
+    # Check authorization
+    user_id = update.effective_user.id
+    if not is_authorized(user_id):
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text(
+            "❌ You are not authorized to use this bot.\n\n"
+            "Please contact @MmdHsn21 for access."
+        )
+        return
+    
     query = update.callback_query
     await query.answer()
     
@@ -1218,7 +1251,7 @@ async def show_help(query):
 *Features:*
 • 📊 View all your VPS servers
 • 🌐 List available networks
-• 🔗 Monitor floating IP addresses
+• ���� Monitor floating IP addresses
 • ➕ Add floating IPs to servers
 • 📋 Get detailed server information
 
@@ -1276,6 +1309,10 @@ Choose an option from the menu below:
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check bot and OpenStack connection status"""
+    # Check authorization
+    if not await check_authorization(update, context):
+        return
+    
     try:
         # Test OpenStack connection
         if openstack.authenticate():
