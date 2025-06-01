@@ -728,7 +728,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif callback_data.startswith('confirm_associate|'):
             # Format: confirm_associate|{ip_index}
             ip_index = callback_data.replace('confirm_associate|', '')
-            await do_associate_ip(query, ip_index)
+            await do_associate_ip(query, context, ip_index)
         elif callback_data.startswith('disassociate_ip|'):
             ip_id = callback_data.replace('disassociate_ip|', '')
             await confirm_disassociate_ip(query, context, ip_id)
@@ -758,6 +758,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Format: confirm_add_fixed_ip|{network_index}
             network_index = callback_data.replace('confirm_add_fixed_ip|', '')
             await do_add_fixed_ip(query, context, network_index)
+        elif callback_data.startswith('remove_fixed_ip|'):
+            # Format: remove_fixed_ip|{ip_index}
+            ip_index = callback_data.replace('remove_fixed_ip|', '')
+            # Get the IP address from the stored fixed IPs
+            fixed_ips = context.user_data.get('fixed_ips', [])
+            if ip_index.isdigit() and int(ip_index) < len(fixed_ips):
+                ip_address = fixed_ips[int(ip_index)]
+                # Store for confirmation
+                context.user_data['confirm_remove_ip'] = ip_address
+                await confirm_remove_fixed_ip(query, context, ip_address)
+            else:
+                await query.edit_message_text("❌ Invalid IP selection. Please try again.")
         elif callback_data.startswith('confirm_remove_fixed_ip|'):
             # Format: confirm_remove_fixed_ip|{ip_index}
             ip_index = callback_data.replace('confirm_remove_fixed_ip|', '')
@@ -766,7 +778,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await show_help(query)
         elif callback_data.startswith('server|'):
             server_id = callback_data.replace('server|', '')
-            await show_server_details(query, server_id)
+            await show_server_details(query, context, server_id)
         elif callback_data == 'back_to_main':
             await back_to_main(query)
         elif callback_data == 'back_to_servers':
@@ -864,7 +876,7 @@ async def list_servers(query, context, page=0):
         logger.error(f"Error in list_servers: {str(e)}")
         await query.edit_message_text("❌ An error occurred while fetching servers.")
 
-async def show_server_details(query, server_id):
+async def show_server_details(query, context, server_id):
     """Show detailed information about a server"""
     try:
         server = openstack.get_server_details(server_id)
@@ -890,10 +902,30 @@ async def show_server_details(query, server_id):
         # Store server info for button actions
         context.user_data['detail_server'] = server
         
+        # Find server index for callback data
+        server_index = None
+        for idx, srv_id in context.user_data.get('server_map', {}).items():
+            if srv_id == server_id:
+                server_index = idx
+                break
+        
+        if server_index is None:
+            # If not found in map, add it
+            servers = context.user_data.get('servers', [])
+            if not servers:
+                servers = [server]
+                context.user_data['servers'] = servers
+                server_index = "0"
+                context.user_data['server_map'] = {"0": server_id}
+            else:
+                server_index = str(len(servers))
+                servers.append(server)
+                context.user_data['server_map'][server_index] = server_id
+        
         # Add buttons for IP management
         keyboard = [
-            [InlineKeyboardButton("➕ Add Floating IP", callback_data='associate_floating_ip')],
-            [InlineKeyboardButton("🔧 Manage Fixed IPs", callback_data='manage_fixed_ips')],
+            [InlineKeyboardButton("➕ Add Floating IP", callback_data=f'select_server|{server_index}')],
+            [InlineKeyboardButton("🔧 Manage Fixed IPs", callback_data=f'select_server_for_fixed_ip|{server_index}')],
             [InlineKeyboardButton("🔙 Back to Servers", callback_data='back_to_servers')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1132,6 +1164,7 @@ async def select_server_for_ip(query, context):
             )])
         
         keyboard.append([InlineKeyboardButton("🔙 Cancel", callback_data='back_to_floating_ips')])
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
@@ -1282,7 +1315,7 @@ async def confirm_associate_ip(query, context, ip_index):
         logger.error(f"Error in confirm_associate_ip: {str(e)}")
         await query.edit_message_text("❌ An error occurred while preparing confirmation.")
 
-async def do_associate_ip(query, ip_index):
+async def do_associate_ip(query, context, ip_index):
     """Associate floating IP with server"""
     try:
         # Get stored IDs
@@ -1619,25 +1652,7 @@ async def select_network_for_fixed_ip(query, context, server_index):
             await query.edit_message_text("❌ Server not found. Please try again.")
             return
         
-        # Get networks
-        networks = openstack.get_networks()
-        if not networks:
-            await query.edit_message_text("❌ Failed to retrieve networks.")
-            return
-        
-        # Filter for internal networks (not external)
-        internal_networks = [net for net in networks if not net.get('router:external', False)]
-        
-        if not internal_networks:
-            await query.edit_message_text("❌ No internal networks found for adding fixed IPs.")
-            return
-        
-        # Store networks with indices
-        context.user_data['networks'] = internal_networks
-        context.user_data['network_map'] = {str(i): net['id'] for i, net in enumerate(internal_networks)}
-        context.user_data['current_server_index'] = server_index
-        
-        # Get server details for display
+        # Get server details
         server = None
         for s in context.user_data.get('servers', []):
             if s['id'] == server_id:
@@ -1650,11 +1665,42 @@ async def select_network_for_fixed_ip(query, context, server_index):
                 await query.edit_message_text("❌ Failed to retrieve server details.")
                 return
         
+        # Get networks that the server is already connected to
+        server_networks = {}
+        for network_name, addresses in server.get('addresses', {}).items():
+            for addr in addresses:
+                if addr.get('OS-EXT-IPS:type') == 'fixed':
+                    server_networks[network_name] = True
+        
+        # Get all networks
+        networks = openstack.get_networks()
+        if not networks:
+            await query.edit_message_text("❌ Failed to retrieve networks.")
+            return
+        
+        # Filter for internal networks (not external) that the server is already connected to
+        available_networks = []
+        for network in networks:
+            if not network.get('router:external', False):
+                for network_name in server_networks.keys():
+                    if network['name'] == network_name:
+                        available_networks.append(network)
+                        break
+        
+        if not available_networks:
+            await query.edit_message_text("❌ No networks found that the server is connected to.")
+            return
+        
+        # Store networks with indices
+        context.user_data['networks'] = available_networks
+        context.user_data['network_map'] = {str(i): net['id'] for i, net in enumerate(available_networks)}
+        context.user_data['current_server_index'] = server_index
+        
         text = f"🌐 *Select Network for {server['name']}*\n\n"
-        text += "Choose a network to add a fixed IP from:"
+        text += "Choose a network to add a fixed IP from (only showing networks the server is already connected to):"
         
         keyboard = []
-        for i, network in enumerate(internal_networks):
+        for i, network in enumerate(available_networks):
             status_emoji = "🟢" if network['status'] == 'ACTIVE' else "🔴"
             keyboard.append([InlineKeyboardButton(
                 f"{status_emoji} {network['name']}",
@@ -1777,6 +1823,54 @@ async def do_add_fixed_ip(query, context, network_index):
     except Exception as e:
         logger.error(f"Error in do_add_fixed_ip: {str(e)}")
         await query.edit_message_text("❌ An error occurred while adding fixed IP.")
+
+async def confirm_remove_fixed_ip(query, context, ip_address):
+    """Confirm removing a fixed IP from a server"""
+    try:
+        # Get stored server ID
+        server_id = context.user_data.get('current_server_id')
+        if not server_id:
+            await query.edit_message_text("❌ Server not found. Please try again.")
+            return
+            
+        # Get server details
+        server = None
+        for s in context.user_data.get('servers', []):
+            if s['id'] == server_id:
+                server = s
+                break
+        
+        if not server:
+            server = openstack.get_server_details(server_id)
+            if not server:
+                await query.edit_message_text("❌ Failed to retrieve server details.")
+                return
+        
+        text = "⚠️ *Confirm Remove Fixed IP*\n\n"
+        text += f"Are you sure you want to remove fixed IP:\n"
+        text += f"`{ip_address}`\n\n"
+        text += f"from server:\n"
+        text += f"`{server['name']}`?\n\n"
+        text += "This action cannot be undone."
+        
+        # Store IP for removal
+        context.user_data['confirm_remove_ip'] = ip_address
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Yes, Remove IP", callback_data=f"confirm_remove_fixed_ip|{ip_address}")],
+            [InlineKeyboardButton("❌ No, Cancel", callback_data=f'select_server_for_fixed_ip|{context.user_data.get("current_server_index", "0")}')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in confirm_remove_fixed_ip: {str(e)}")
+        await query.edit_message_text("❌ An error occurred while preparing confirmation.")
 
 async def do_remove_fixed_ip(query, context, ip_index):
     """Remove a fixed IP from a server"""
