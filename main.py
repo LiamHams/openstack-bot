@@ -1,4 +1,9 @@
-#!/usr/bin/env python3
+... shell ...
+
+Let me continue with the rest of the functions:
+
+```typescriptreact file="openstack_bot_fixed.py"
+[v0-no-op-code-block-prefix]#!/usr/bin/env python3
 """
 OpenStack Telegram Bot
 A Telegram bot for monitoring and managing OpenStack VPS instances
@@ -717,77 +722,79 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await allocate_floating_ip(query)
         elif callback_data == 'associate_floating_ip':
             await select_server_for_ip(query, context)
-        elif callback_data.startswith('select_server_') and not callback_data.startswith('select_server_for_fixed_ip_'):
-            # Handle floating IP server selection
-            parts = callback_data.split('_')
-            if len(parts) >= 3:
-                server_id = '_'.join(parts[2:])  # Handle UUIDs with underscores
-                await select_floating_ip(query, context, server_id)
-        elif callback_data.startswith('select_ip_'):
-            parts = callback_data.split('_')
-            if len(parts) >= 4:
-                ip_id = parts[2]
-                server_id = '_'.join(parts[3:])  # Handle UUIDs with underscores
+        elif callback_data.startswith('select_server|') and not callback_data.startswith('select_server_for_fixed_ip|'):
+            # Handle floating IP server selection - using | as separator
+            server_id = callback_data.replace('select_server|', '')
+            await select_floating_ip(query, context, server_id)
+        elif callback_data.startswith('select_ip|'):
+            # Format: select_ip|{ip_id}|{server_id}
+            parts = callback_data.split('|')
+            if len(parts) == 3:
+                ip_id = parts[1]
+                server_id = parts[2]
                 await confirm_associate_ip(query, context, ip_id, server_id)
-        elif callback_data.startswith('confirm_associate_'):
-            parts = callback_data.split('_')
-            if len(parts) >= 4:
-                ip_id = parts[2]
-                server_id = '_'.join(parts[3:])  # Handle UUIDs with underscores
+        elif callback_data.startswith('confirm_associate|'):
+            # Format: confirm_associate|{ip_id}|{server_id}
+            parts = callback_data.split('|')
+            if len(parts) == 3:
+                ip_id = parts[1]
+                server_id = parts[2]
                 await do_associate_ip(query, ip_id, server_id)
-        elif callback_data.startswith('disassociate_ip_'):
-            ip_id = '_'.join(callback_data.split('_')[2:])  # Handle UUIDs with underscores
+        elif callback_data.startswith('disassociate_ip|'):
+            ip_id = callback_data.replace('disassociate_ip|', '')
             await confirm_disassociate_ip(query, context, ip_id)
-        elif callback_data.startswith('confirm_disassociate_'):
-            ip_id = '_'.join(callback_data.split('_')[2:])  # Handle UUIDs with underscores
+        elif callback_data.startswith('confirm_disassociate|'):
+            ip_id = callback_data.replace('confirm_disassociate|', '')
             await do_disassociate_ip(query, ip_id)
-        elif callback_data.startswith('delete_ip_'):
-            ip_id = '_'.join(callback_data.split('_')[2:])  # Handle UUIDs with underscores
+        elif callback_data.startswith('delete_ip|'):
+            ip_id = callback_data.replace('delete_ip|', '')
             await confirm_delete_ip(query, context, ip_id)
-        elif callback_data.startswith('confirm_delete_'):
-            ip_id = '_'.join(callback_data.split('_')[2:])  # Handle UUIDs with underscores
+        elif callback_data.startswith('confirm_delete|'):
+            ip_id = callback_data.replace('confirm_delete|', '')
             await do_delete_ip(query, ip_id)
         # Fixed IP management handlers
         elif callback_data == 'manage_fixed_ips':
             await manage_fixed_ips(query, context)
-        elif callback_data.startswith('select_server_for_fixed_ip_'):
-            server_id = callback_data.replace('select_server_for_fixed_ip_', '')
+        elif callback_data.startswith('select_server_for_fixed_ip|'):
+            server_id = callback_data.replace('select_server_for_fixed_ip|', '')
             await manage_server_fixed_ips(query, context, server_id)
-        elif callback_data.startswith('add_fixed_ip_'):
-            server_id = callback_data.replace('add_fixed_ip_', '')
+        elif callback_data.startswith('add_fixed_ip|'):
+            server_id = callback_data.replace('add_fixed_ip|', '')
             await select_network_for_fixed_ip(query, context, server_id)
-        elif callback_data.startswith('select_network_') and '_for_server_' in callback_data:
-            # Handle network selection for fixed IP
-            parts = callback_data.replace('select_network_', '').split('_for_server_')
-            if len(parts) == 2:
-                network_id = parts[0]
-                server_id = parts[1]
+        elif callback_data.startswith('select_network|'):
+            # Format: select_network|{network_id}|{server_id}
+            parts = callback_data.split('|')
+            if len(parts) == 3:
+                network_id = parts[1]
+                server_id = parts[2]
                 await confirm_add_fixed_ip(query, context, server_id, network_id)
-        elif callback_data.startswith('confirm_add_fixed_ip_'):
-            parts = callback_data.replace('confirm_add_fixed_ip_', '').split('_to_server_')
-            if len(parts) == 2:
-                network_id = parts[0]
-                server_id = parts[1]
+        elif callback_data.startswith('confirm_add_fixed_ip|'):
+            # Format: confirm_add_fixed_ip|{network_id}|{server_id}
+            parts = callback_data.split('|')
+            if len(parts) == 3:
+                network_id = parts[1]
+                server_id = parts[2]
                 await do_add_fixed_ip(query, server_id, network_id)
-        elif callback_data.startswith('remove_fixed_ip_'):
-            # Handle remove fixed IP
-            parts = callback_data.replace('remove_fixed_ip_', '').split('_from_server_')
-            if len(parts) == 2:
-                safe_ip = parts[0]
-                server_id = parts[1]
+        elif callback_data.startswith('remove_fixed_ip|'):
+            # Format: remove_fixed_ip|{safe_ip}|{server_id}
+            parts = callback_data.split('|')
+            if len(parts) == 3:
+                safe_ip = parts[1]
+                server_id = parts[2]
                 ip_address = safe_ip.replace('_', '.')
                 await confirm_remove_fixed_ip(query, context, server_id, ip_address)
-        elif callback_data.startswith('confirm_remove_fixed_ip_'):
-            parts = callback_data.replace('confirm_remove_fixed_ip_', '').split('_from_server_')
-            if len(parts) == 2:
-                safe_ip = parts[0]
-                server_id = parts[1]
+        elif callback_data.startswith('confirm_remove_fixed_ip|'):
+            # Format: confirm_remove_fixed_ip|{safe_ip}|{server_id}
+            parts = callback_data.split('|')
+            if len(parts) == 3:
+                safe_ip = parts[1]
+                server_id = parts[2]
                 ip_address = safe_ip.replace('_', '.')
                 await do_remove_fixed_ip(query, server_id, ip_address)
         elif callback_data == 'help':
             await show_help(query)
-        elif callback_data.startswith('server_'):
-            server_id = callback_data.replace('server_', '')
+        elif callback_data.startswith('server|'):
+            server_id = callback_data.replace('server|', '')
             await show_server_details(query, server_id)
         elif callback_data == 'back_to_main':
             await back_to_main(query)
@@ -860,7 +867,7 @@ async def list_servers(query, context, page=0):
             
             keyboard.append([InlineKeyboardButton(
                 f"📋 {server['name']}", 
-                callback_data=f'server_{server["id"]}'
+                callback_data=f'server|{server["id"]}'
             )])
         
         # Add pagination buttons
@@ -911,8 +918,8 @@ async def show_server_details(query, server_id):
         
         # Add buttons for IP management
         keyboard = [
-            [InlineKeyboardButton("➕ Add Floating IP", callback_data=f'select_server_{server_id}')],
-            [InlineKeyboardButton("🔧 Manage Fixed IPs", callback_data=f'select_server_for_fixed_ip_{server_id}')],
+            [InlineKeyboardButton("➕ Add Floating IP", callback_data=f'select_server|{server_id}')],
+            [InlineKeyboardButton("🔧 Manage Fixed IPs", callback_data=f'select_server_for_fixed_ip|{server_id}')],
             [InlineKeyboardButton("🔙 Back to Servers", callback_data='back_to_servers')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1017,20 +1024,20 @@ async def list_floating_ips(query):
                 # Add button to disassociate
                 keyboard.append([InlineKeyboardButton(
                     f"🔄 Disassociate {fip['floating_ip_address']}",
-                    callback_data=f"disassociate_ip_{fip['id']}"
+                    callback_data=f"disassociate_ip|{fip['id']}"
                 )])
             else:
                 text += f"   Status: `{fip['status']}`\n"
                 # Add button to associate
                 keyboard.append([InlineKeyboardButton(
                     f"🔄 Associate {fip['floating_ip_address']}",
-                    callback_data=f"associate_floating_ip"  # Fix: Changed to general associate menu
+                    callback_data=f"associate_floating_ip"
                 )])
             
             # Add button to delete this IP
             keyboard.append([InlineKeyboardButton(
                 f"🗑️ Delete {fip['floating_ip_address']}",
-                callback_data=f"delete_ip_{fip['id']}"
+                callback_data=f"delete_ip|{fip['id']}"
             )])
             
             text += "\n"
@@ -1146,9 +1153,13 @@ async def select_server_for_ip(query, context):
             status_emoji = "🟢" if server['status'] == 'ACTIVE' else "🔴" if server['status'] == 'ERROR' else "🟡"
             keyboard.append([InlineKeyboardButton(
                 f"{status_emoji} {server['name']}",
-                callback_data=f"select_server_{server['id']}"
+                callback_data=f"select_server|{server['id']}"
             )])
         
+        keyboard = [
+            [InlineKeyboardButton(f"{status_emoji} {server['name']}",
+                callback_data=f"select_server|{server['id']}") for server in servers],
+        ]
         keyboard.append([InlineKeyboardButton("🔙 Cancel", callback_data='back_to_floating_ips')])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1212,7 +1223,7 @@ async def select_floating_ip(query, context, server_id):
         for ip in unassociated_ips:
             keyboard.append([InlineKeyboardButton(
                 f"🔓 {ip['floating_ip_address']}",
-                callback_data=f"select_ip_{ip['id']}_{server_id}"
+                callback_data=f"select_ip|{ip['id']}|{server_id}"
             )])
         
         keyboard.append([InlineKeyboardButton("🔙 Cancel", callback_data='back_to_floating_ips')])
@@ -1267,7 +1278,7 @@ async def confirm_associate_ip(query, context, ip_id, server_id):
         text += f"`{server['name']}`?"
         
         keyboard = [
-            [InlineKeyboardButton("✅ Yes, Associate", callback_data=f"confirm_associate_{ip_id}_{server_id}")],
+            [InlineKeyboardButton("✅ Yes, Associate", callback_data=f"confirm_associate|{ip_id}|{server_id}")],
             [InlineKeyboardButton("❌ No, Cancel", callback_data='cancel_operation')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1364,7 +1375,7 @@ async def confirm_disassociate_ip(query, context, ip_id):
         text += f"from its current port?"
         
         keyboard = [
-            [InlineKeyboardButton("✅ Yes, Disassociate", callback_data=f"confirm_disassociate_{ip_id}")],
+            [InlineKeyboardButton("✅ Yes, Disassociate", callback_data=f"confirm_disassociate|{ip_id}")],
             [InlineKeyboardButton("❌ No, Cancel", callback_data='cancel_operation')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1438,7 +1449,7 @@ async def confirm_delete_ip(query, context, ip_id):
         text += "This action cannot be undone."
         
         keyboard = [
-            [InlineKeyboardButton("✅ Yes, Delete", callback_data=f"confirm_delete_{ip_id}")],
+            [InlineKeyboardButton("✅ Yes, Delete", callback_data=f"confirm_delete|{ip_id}")],
             [InlineKeyboardButton("❌ No, Cancel", callback_data='cancel_operation')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1514,7 +1525,7 @@ async def manage_fixed_ips(query, context):
             status_emoji = "🟢" if server['status'] == 'ACTIVE' else "🔴" if server['status'] == 'ERROR' else "🟡"
             keyboard.append([InlineKeyboardButton(
                 f"{status_emoji} {server['name']}",
-                callback_data=f"select_server_for_fixed_ip_{server['id']}"
+                callback_data=f"select_server_for_fixed_ip|{server['id']}"
             )])
         
         keyboard.append([InlineKeyboardButton("🔙 Back to Main", callback_data='back_to_main')])
@@ -1562,7 +1573,7 @@ async def manage_server_fixed_ips(query, context, server_id):
             text += "No fixed IPs found for this server.\n"
         
         keyboard = [
-            [InlineKeyboardButton("➕ Add Fixed IP", callback_data=f"add_fixed_ip_{server_id}")],
+            [InlineKeyboardButton("➕ Add Fixed IP", callback_data=f"add_fixed_ip|{server_id}")],
             [InlineKeyboardButton("🔙 Back to Server List", callback_data='manage_fixed_ips')],
             [InlineKeyboardButton("🔙 Back to Main", callback_data='back_to_main')]
         ]
@@ -1576,7 +1587,7 @@ async def manage_server_fixed_ips(query, context, server_id):
                     safe_ip = ip_address.replace('.', '_')
                     keyboard.insert(0, [InlineKeyboardButton(
                         f"🗑️ Remove {ip_address}",
-                        callback_data=f"remove_fixed_ip_{safe_ip}_from_server_{server_id}"
+                        callback_data=f"remove_fixed_ip|{safe_ip}|{server_id}"
                     )])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1628,10 +1639,10 @@ async def select_network_for_fixed_ip(query, context, server_id):
             status_emoji = "🟢" if network['status'] == 'ACTIVE' else "🔴"
             keyboard.append([InlineKeyboardButton(
                 f"{status_emoji} {network['name']}",
-                callback_data=f"select_network_{network['id']}_for_server_{server_id}"
+                callback_data=f"select_network|{network['id']}|{server_id}"
             )])
         
-        keyboard.append([InlineKeyboardButton("🔙 Cancel", callback_data=f'select_server_for_fixed_ip_{server_id}')])
+        keyboard.append([InlineKeyboardButton("🔙 Cancel", callback_data=f'select_server_for_fixed_ip|{server_id}')])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
@@ -1679,8 +1690,8 @@ async def confirm_add_fixed_ip(query, context, server_id, network_id):
         text += f"`{server['name']}`?"
         
         keyboard = [
-            [InlineKeyboardButton("✅ Yes, Add IP", callback_data=f"confirm_add_fixed_ip_{network_id}_to_server_{server_id}")],
-            [InlineKeyboardButton("❌ No, Cancel", callback_data=f'select_server_for_fixed_ip_{server_id}')]
+            [InlineKeyboardButton("✅ Yes, Add IP", callback_data=f"confirm_add_fixed_ip|{network_id}|{server_id}")],
+            [InlineKeyboardButton("❌ No, Cancel", callback_data=f'select_server_for_fixed_ip|{server_id}')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1697,9 +1708,9 @@ async def confirm_add_fixed_ip(query, context, server_id, network_id):
 async def do_add_fixed_ip(query, server_id, network_id):
     """Add a fixed IP to a server"""
     try:
-        # Add interface to server
-        result = openstack.attach_interface(server_id, network_id)
-        if not result:
+        # Add fixed IP
+        success = openstack.add_fixed_ip(server_id, network_id)
+        if not success:
             await query.edit_message_text(
                 "❌ Failed to add fixed IP to server.\n\n"
                 "Please check logs for more details."
@@ -1708,14 +1719,11 @@ async def do_add_fixed_ip(query, server_id, network_id):
         
         # Success message
         text = "✅ *Fixed IP Added Successfully*\n\n"
-        text += "A new network interface has been successfully attached to the server.\n\n"
-        if 'fixed_ips' in result and result['fixed_ips']:
-            ip_address = result['fixed_ips'][0]['ip_address']
-            text += f"New IP Address: `{ip_address}`\n\n"
-        text += "The server now has an additional IP address from the selected network."
+        text += "A new fixed IP has been successfully added to the server.\n\n"
+        text += "The server will now have an additional IP address from the selected network."
         
         keyboard = [
-            [InlineKeyboardButton("🔙 Back to Server IPs", callback_data=f'select_server_for_fixed_ip_{server_id}')],
+            [InlineKeyboardButton("🔙 Back to Server IPs", callback_data=f'select_server_for_fixed_ip|{server_id}')],
             [InlineKeyboardButton("🔙 Back to Fixed IP Management", callback_data='manage_fixed_ips')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1755,8 +1763,8 @@ async def confirm_remove_fixed_ip(query, context, server_id, ip_address):
         
         safe_ip = ip_address.replace('.', '_')
         keyboard = [
-            [InlineKeyboardButton("✅ Yes, Remove IP", callback_data=f"confirm_remove_fixed_ip_{safe_ip}_from_server_{server_id}")],
-            [InlineKeyboardButton("❌ No, Cancel", callback_data=f'select_server_for_fixed_ip_{server_id}')]
+            [InlineKeyboardButton("✅ Yes, Remove IP", callback_data=f"confirm_remove_fixed_ip|{safe_ip}|{server_id}")],
+            [InlineKeyboardButton("❌ No, Cancel", callback_data=f'select_server_for_fixed_ip|{server_id}')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1773,28 +1781,8 @@ async def confirm_remove_fixed_ip(query, context, server_id, ip_address):
 async def do_remove_fixed_ip(query, server_id, ip_address):
     """Remove a fixed IP from a server"""
     try:
-        # Find the port associated with the IP address
-        interfaces = openstack.get_server_interfaces(server_id)
-        if not interfaces:
-            await query.edit_message_text("❌ No network interfaces found for this server.")
-            return
-        
-        port_id = None
-        for interface in interfaces:
-            if 'fixed_ips' in interface:
-                for fixed_ip in interface['fixed_ips']:
-                    if fixed_ip['ip_address'] == ip_address:
-                        port_id = interface['port_id']
-                        break
-                if port_id:
-                    break
-        
-        if not port_id:
-            await query.edit_message_text("❌ No matching network interface found for the specified IP address.")
-            return
-        
-        # Detach the interface
-        success = openstack.detach_interface(server_id, port_id)
+        # Remove fixed IP
+        success = openstack.remove_fixed_ip(server_id, ip_address)
         if not success:
             await query.edit_message_text(
                 "❌ Failed to remove fixed IP from server.\n\n"
@@ -1804,11 +1792,10 @@ async def do_remove_fixed_ip(query, server_id, ip_address):
         
         # Success message
         text = "✅ *Fixed IP Removed Successfully*\n\n"
-        text += "The network interface has been successfully detached from the server.\n\n"
-        text += "The server no longer has the specified IP address."
+        text += f"Fixed IP `{ip_address}` has been successfully removed from the server."
         
         keyboard = [
-            [InlineKeyboardButton("🔙 Back to Server IPs", callback_data=f'select_server_for_fixed_ip_{server_id}')],
+            [InlineKeyboardButton("🔙 Back to Server IPs", callback_data=f'select_server_for_fixed_ip|{server_id}')],
             [InlineKeyboardButton("🔙 Back to Fixed IP Management", callback_data='manage_fixed_ips')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1824,34 +1811,56 @@ async def do_remove_fixed_ip(query, server_id, ip_address):
         await query.edit_message_text("❌ An error occurred while removing fixed IP.")
 
 async def show_help(query):
-    """Show help message"""
-    text = """
-ℹ️ *Help - OpenStack Bot*
+    """Show help information"""
+    help_text = """
+ℹ️ *OpenStack Bot Help*
 
-This bot helps you manage your OpenStack VPS instances.
+*Available Commands:*
+• `/start` - Show main menu
+• `/status` - Check bot status
 
-Available commands:
-• /start - Start the bot and show the main menu.
+*Features:*
+• 📊 View all your VPS servers
+• 🌐 List available networks
+• 🔗 Monitor floating IP addresses
+• ➕ Add floating IPs to servers
+• 🔧 Manage fixed IPs on servers
+• 📋 Get detailed server information
 
-Main Menu Options:
-• *List Servers* - Show a list of your servers.
-• *List Networks* - Show a list of your networks.
-• *Floating IPs* - Manage your floating IPs.
-• *Manage Fixed IPs* - Manage fixed IPs for your servers.
+*Floating IP Management:*
+• Allocate new floating IPs
+• Associate IPs with servers
+• Disassociate IPs from servers
+• Delete floating IPs
 
-For any questions or issues, please contact @MmdHsn21.
+*Fixed IP Management:*
+• Add fixed IPs to servers from networks
+• Remove fixed IPs from servers
+• View current IP assignments
+
+*Status Indicators:*
+• 🟢 Active/Available
+• 🔴 Error/Down
+• 🟡 Building/Transitioning
+• 🌍 External network
+• 🏠 Internal network
+• 📎 Attached floating IP
+• 🔓 Unattached floating IP
+
+*Need help?* Contact your system administrator.
     """
+    
     keyboard = [[InlineKeyboardButton("🔙 Back to Main", callback_data='back_to_main')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.edit_message_text(
-        text,
+        help_text,
         parse_mode='Markdown',
         reply_markup=reply_markup
     )
 
 async def back_to_main(query):
-    """Go back to the main menu"""
+    """Return to main menu"""
     keyboard = [
         [InlineKeyboardButton("📊 List Servers", callback_data='list_servers')],
         [InlineKeyboardButton("🌐 List Networks", callback_data='list_networks')],
@@ -1876,25 +1885,59 @@ Choose an option from the menu below:
         reply_markup=reply_markup
     )
 
-def main():
-    """Main function"""
-    # Get bot token from environment variable
-    bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-    if not bot_token:
-        logger.critical("Telegram bot token not found in environment variables.")
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Check bot and OpenStack connection status"""
+    # Check authorization
+    if not await check_authorization(update, context):
         return
     
-    # Create the application and pass it your bot's token.
+    try:
+        # Test OpenStack connection
+        if openstack.authenticate():
+            status_text = "✅ *Bot Status: Online*\n✅ *OpenStack API: Connected*"
+            
+            # Check services
+            services_text = "\n\n*Available Services:*\n"
+            for service_type, url in openstack.service_catalog.items():
+                services_text += f"• `{service_type}`: ✅\n"
+            
+            status_text += services_text
+        else:
+            status_text = "✅ *Bot Status: Online*\n❌ *OpenStack API: Connection Failed*"
+        
+        await update.message.reply_text(status_text, parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"Error in status command: {str(e)}")
+        await update.message.reply_text("❌ Error checking status.")
+
+def main():
+    """Main function to run the bot"""
+    # Get bot token from environment
+    bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
+    if not bot_token:
+        logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
+        return
+    
+    # Create application
     application = Application.builder().token(bot_token).build()
     
-    # Add command handlers
+    # Add handlers
     application.add_handler(CommandHandler("start", start))
-    
-    # Add callback query handler
+    application.add_handler(CommandHandler("status", status))
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    # Run the bot until the user presses Ctrl-C
-    application.run_polling()
+    # Test OpenStack connection on startup
+    logger.info("Testing OpenStack connection...")
+    if openstack.authenticate():
+        logger.info("✅ OpenStack connection successful!")
+        logger.info(f"Available services: {list(openstack.service_catalog.keys())}")
+    else:
+        logger.error("❌ OpenStack connection failed!")
+    
+    # Start the bot
+    logger.info("Starting OpenStack Telegram Bot...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()
