@@ -30,10 +30,10 @@ This bot automates various OpenStack management tasks, providing a streamlined i
 ### Installation
 
 1. Clone the repository:
-   \`\`\`bash
-   git clone https://github.com/your-username/openstack-bot.git
+   ```
+   git clone https://github.com/LiamHams/openstack-bot.git
    cd openstack-bot
-   \`\`\`
+   ```
 
 2. Install the dependencies:
    \`\`\`bash
