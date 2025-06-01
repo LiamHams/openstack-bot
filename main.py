@@ -739,21 +739,42 @@ async def list_floating_ips(query):
         # Display floating IPs
         text = "🔗 *Your Floating IPs:*\n\n"
         
+        keyboard = []
+        
         for fip in floating_ips:
             status_emoji = "🟢" if fip['status'] == 'ACTIVE' else "🔴" if fip['status'] == 'ERROR' else "🟡"
             attached = "📎" if fip.get('fixed_ip_address') else "🔓"
             
             text += f"{status_emoji} {attached} `{fip['floating_ip_address']}`\n"
+            
+            # Show different information based on attachment status
             if fip.get('fixed_ip_address'):
-                text += f"   Attached to: `{fip['fixed_ip_address']}`\n\n"
+                text += f"   Attached to: `{fip['fixed_ip_address']}`\n"
+                # Add button to disassociate
+                keyboard.append([InlineKeyboardButton(
+                    f"🔄 Disassociate {fip['floating_ip_address']}",
+                    callback_data=f"disassociate_ip_{fip['id']}"
+                )])
             else:
-                text += f"   Status: `{fip['status']}`\n\n"
+                text += f"   Status: `{fip['status']}`\n"
+                # Add button to associate
+                keyboard.append([InlineKeyboardButton(
+                    f"🔄 Associate {fip['floating_ip_address']}",
+                    callback_data=f"select_server_{fip['id']}"
+                )])
+            
+            # Add button to delete this IP
+            keyboard.append([InlineKeyboardButton(
+                f"🗑️ Delete {fip['floating_ip_address']}",
+                callback_data=f"delete_ip_{fip['id']}"
+            )])
+            
+            text += "\n"
         
-        keyboard = [
-            [InlineKeyboardButton("➕ Allocate New IP", callback_data='allocate_floating_ip')],
-            [InlineKeyboardButton("🔄 Associate IP", callback_data='associate_floating_ip')],
-            [InlineKeyboardButton("🔙 Back to Main", callback_data='back_to_main')]
-        ]
+        # Add general management buttons
+        keyboard.append([InlineKeyboardButton("➕ Allocate New IP", callback_data='allocate_floating_ip')])
+        keyboard.append([InlineKeyboardButton("🔙 Back to Main", callback_data='back_to_main')])
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
