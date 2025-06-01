@@ -283,6 +283,87 @@ class OpenStackAPI:
             logger.error(f"Error getting public network ID: {str(e)}")
             return None
     
+    def get_routers(self):
+        """Get list of all routers"""
+        try:
+            headers = self.get_headers()
+            if not headers:
+                return None
+                
+            network_url = self.service_catalog.get('network')
+            if not network_url:
+                logger.error("Network service not found in catalog")
+                return None
+                
+            response = requests.get(
+                f"{network_url}/v2.0/routers",
+                headers=headers
+            )
+            
+            if response.status_code == 200:
+                return response.json()['routers']
+            else:
+                logger.error(f"Failed to get routers: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error getting routers: {str(e)}")
+            return None
+    
+    def get_subnets(self):
+        """Get list of all subnets"""
+        try:
+            headers = self.get_headers()
+            if not headers:
+                return None
+                
+            network_url = self.service_catalog.get('network')
+            if not network_url:
+                logger.error("Network service not found in catalog")
+                return None
+                
+            response = requests.get(
+                f"{network_url}/v2.0/subnets",
+                headers=headers
+            )
+            
+            if response.status_code == 200:
+                return response.json()['subnets']
+            else:
+                logger.error(f"Failed to get subnets: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error getting subnets: {str(e)}")
+            return None
+    
+    def find_networks_with_external_gateway(self):
+        """Find networks that have external gateway access"""
+        try:
+            routers = self.get_routers()
+            subnets = self.get_subnets()
+            
+            if not routers or not subnets:
+                return []
+            
+            # Find routers with external gateways
+            external_routers = []
+            for router in routers:
+                if router.get('external_gateway_info') and router['external_gateway_info'].get('network_id'):
+                    external_routers.append(router['id'])
+            
+            # Find subnets connected to these routers
+            connected_networks = set()
+            for subnet in subnets:
+                if subnet.get('gateway_ip') and any(port.get('device_id') in external_routers for port in self.get_ports() or [] if port.get('network_id') == subnet['network_id']):
+                    connected_networks.add(subnet['network_id'])
+            
+            return list(connected_networks)
+            
+        except Exception as e:
+            logger.error(f"Error finding networks with external gateway: {str(e)}")
+            return []
+    
     def create_port(self, network_id, device_id=None):
         """Create a new port on the specified network"""
         try:
@@ -484,6 +565,37 @@ class OpenStackAPI:
         except Exception as e:
             logger.error(f"Error getting server ports: {str(e)}")
             return None
+    
+    def get_suitable_port_for_floating_ip(self, server_id):
+        """Get a suitable port for floating IP association"""
+        try:
+            # Get server ports
+            ports = self.get_server_ports(server_id)
+            if not ports:
+                logger.info(f"No ports found for server {server_id}")
+                return None
+            
+            # Get networks with external gateway access
+            external_networks = self.find_networks_with_external_gateway()
+            
+            # Find a port on a network with external access
+            for port in ports:
+                if port.get('fixed_ips') and port['network_id'] in external_networks:
+                    logger.info(f"Found suitable port {port['id']} on network {port['network_id']}")
+                    return port
+            
+            # If no suitable port found, try to use any port with fixed IPs
+            for port in ports:
+                if port.get('fixed_ips'):
+                    logger.warning(f"Using port {port['id']} without confirmed external access")
+                    return port
+            
+            logger.warning(f"No suitable ports found for server {server_id}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error finding suitable port: {str(e)}")
+            return None
             
     # New methods for managing fixed IPs
     def add_fixed_ip(self, server_id, network_id):
@@ -591,60 +703,6 @@ class OpenStackAPI:
             logger.error(f"Error attaching interface: {str(e)}")
             return None
 
-    def detach_interface(self, server_id, port_id):
-        """Detach a network interface from a server"""
-        try:
-            headers = self.get_headers()
-            if not headers:
-                return False
-                
-            compute_url = self.service_catalog.get('compute')
-            if not compute_url:
-                logger.error("Compute service not found in catalog")
-                return False
-        
-            response = requests.delete(
-                f"{compute_url}/servers/{server_id}/os-interface/{port_id}",
-                headers=headers
-            )
-        
-            if response.status_code in [202, 204]:
-                return True
-            else:
-                logger.error(f"Failed to detach interface: {response.status_code} - {response.text}")
-                return False
-            
-        except Exception as e:
-            logger.error(f"Error detaching interface: {str(e)}")
-            return False
-
-    def get_server_interfaces(self, server_id):
-        """Get all network interfaces attached to a server"""
-        try:
-            headers = self.get_headers()
-            if not headers:
-                return None
-                
-            compute_url = self.service_catalog.get('compute')
-            if not compute_url:
-                logger.error("Compute service not found in catalog")
-                return None
-        
-            response = requests.get(
-                f"{compute_url}/servers/{server_id}/os-interface",
-                headers=headers
-            )
-        
-            if response.status_code == 200:
-                return response.json()['interfaceAttachments']
-            else:
-                logger.error(f"Failed to get server interfaces: {response.status_code} - {response.text}")
-                return None
-            
-        except Exception as e:
-            logger.error(f"Error getting server interfaces: {str(e)}")
-            return None
-
 # Initialize OpenStack API
 openstack = OpenStackAPI()
 
@@ -748,8 +806,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             server_index = callback_data.replace('select_server_for_fixed_ip|', '')
             await manage_server_fixed_ips(query, context, server_index)
         elif callback_data.startswith('add_fixed_ip|'):
-            server_id = callback_data.replace('add_fixed_ip|', '')
-            await select_network_for_fixed_ip(query, context, server_id)
+            server_index = callback_data.replace('add_fixed_ip|', '')
+            await select_network_for_fixed_ip(query, context, server_index)
         elif callback_data.startswith('select_network|'):
             # Format: select_network|{network_index}
             network_index = callback_data.replace('select_network|', '')
@@ -1329,49 +1387,47 @@ async def do_associate_ip(query, context, ip_index):
             await query.edit_message_text("❌ Invalid operation. Please try again.")
             return
         
-        # Get server ports
-        ports = openstack.get_server_ports(server_id)
-        if not ports:
-            logger.info(f"No ports found for server {server_id}. Creating a new port.")
-            # Try to create a port
-            public_network_id = openstack.get_public_network_id()
-            if not public_network_id:
-                await query.edit_message_text("❌ Failed to find public network.")
-                return
+        # Get a suitable port for floating IP association
+        suitable_port = openstack.get_suitable_port_for_floating_ip(server_id)
+        
+        if not suitable_port:
+            # Try to find networks with external gateway access
+            external_networks = openstack.find_networks_with_external_gateway()
             
-            port = openstack.create_port(public_network_id, server_id)
-            if not port:
-                logger.error(f"Failed to create port for server {server_id}.")
+            if external_networks:
+                # Try to attach interface to a network with external access
+                for network_id in external_networks:
+                    interface = openstack.attach_interface(server_id, network_id)
+                    if interface:
+                        # Get the new port
+                        suitable_port = openstack.get_suitable_port_for_floating_ip(server_id)
+                        if suitable_port:
+                            break
+            
+            if not suitable_port:
                 await query.edit_message_text(
-                    "❌ Failed to create port for server.\n\n"
-                    "Please check logs for more details."
+                    "❌ *Network Configuration Issue*\n\n"
+                    "This server doesn't have a network interface that can reach the external network.\n\n"
+                    "Possible solutions:\n"
+                    "• Ensure the server is connected to a network with a router\n"
+                    "• Check that the router has an external gateway\n"
+                    "• Contact your network administrator\n\n"
+                    "Technical details: No suitable port found for floating IP association."
                 )
                 return
-            
-            port_id = port['id']
-            logger.info(f"Successfully created port {port_id} for server {server_id}.")
-        else:
-            # Check for ports with fixed IPs
-            eligible_ports = [port for port in ports if port.get('fixed_ips')]
-            
-            if not eligible_ports:
-                logger.warning(f"No ports with fixed IPs found for server {server_id}.")
-                await query.edit_message_text(
-                    "❌ No suitable network port found for this server.\n\n"
-                    "Please ensure the server has a port with a valid fixed IP address."
-                )
-                return
-            
-            # Use existing port with fixed IP
-            port_id = eligible_ports[0]['id']
-            logger.info(f"Using existing port {port_id} for server {server_id}.")
+        
+        port_id = suitable_port['id']
+        logger.info(f"Using port {port_id} for floating IP association")
         
         # Associate floating IP with port
         result = openstack.associate_floating_ip(ip_id, port_id)
         if not result:
-            logger.error(f"Failed to associate floating IP {ip_id} with server {server_id}.")
             await query.edit_message_text(
                 "❌ Failed to associate floating IP with server.\n\n"
+                "This could be due to:\n"
+                "• Network routing issues\n"
+                "• Port configuration problems\n"
+                "• External gateway connectivity\n\n"
                 "Please check logs for more details."
             )
             return
@@ -1671,7 +1727,25 @@ async def select_network_for_fixed_ip(query, context, server_index):
             await query.edit_message_text("❌ Server not found. Please try again.")
             return
         
-        # Get server details
+        # Get all networks
+        networks = openstack.get_networks()
+        if not networks:
+            await query.edit_message_text("❌ Failed to retrieve networks.")
+            return
+        
+        # Filter for internal networks (not external) - show all available networks
+        available_networks = [net for net in networks if not net.get('router:external', False)]
+        
+        if not available_networks:
+            await query.edit_message_text("❌ No internal networks found for adding fixed IPs.")
+            return
+        
+        # Store networks with indices
+        context.user_data['networks'] = available_networks
+        context.user_data['network_map'] = {str(i): net['id'] for i, net in enumerate(available_networks)}
+        context.user_data['current_server_index'] = server_index
+        
+        # Get server details for display
         server = None
         for s in context.user_data.get('servers', []):
             if s['id'] == server_id:
@@ -1684,39 +1758,8 @@ async def select_network_for_fixed_ip(query, context, server_index):
                 await query.edit_message_text("❌ Failed to retrieve server details.")
                 return
         
-        # Get networks that the server is already connected to
-        server_networks = {}
-        for network_name, addresses in server.get('addresses', {}).items():
-            for addr in addresses:
-                if addr.get('OS-EXT-IPS:type') == 'fixed':
-                    server_networks[network_name] = True
-        
-        # Get all networks
-        networks = openstack.get_networks()
-        if not networks:
-            await query.edit_message_text("❌ Failed to retrieve networks.")
-            return
-        
-        # Filter for internal networks (not external) that the server is already connected to
-        available_networks = []
-        for network in networks:
-            if not network.get('router:external', False):
-                for network_name in server_networks.keys():
-                    if network['name'] == network_name:
-                        available_networks.append(network)
-                        break
-        
-        if not available_networks:
-            await query.edit_message_text("❌ No networks found that the server is connected to.")
-            return
-        
-        # Store networks with indices
-        context.user_data['networks'] = available_networks
-        context.user_data['network_map'] = {str(i): net['id'] for i, net in enumerate(available_networks)}
-        context.user_data['current_server_index'] = server_index
-        
         text = f"🌐 *Select Network for {server['name']}*\n\n"
-        text += "Choose a network to add a fixed IP from (only showing networks the server is already connected to):"
+        text += "Choose a network to add a fixed IP from:"
         
         keyboard = []
         for i, network in enumerate(available_networks):
@@ -1971,10 +2014,10 @@ async def show_help(query):
 
 *Need help?* Contact your system administrator.
     """
-
+    
     keyboard = [[InlineKeyboardButton("🔙 Back to Main", callback_data='back_to_main')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
+    
     await query.edit_message_text(
         help_text,
         parse_mode='Markdown',
@@ -1992,7 +2035,7 @@ async def back_to_main(query):
         [InlineKeyboardButton("ℹ️ Help", callback_data='help')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
+    
     welcome_text = """
 🤖 *OpenStack Management Bot*
 
@@ -2000,7 +2043,7 @@ Welcome! I can help you monitor and manage your OpenStack VPS instances.
 
 Choose an option from the menu below:
     """
-
+    
     await query.edit_message_text(
         welcome_text,
         parse_mode='Markdown',
@@ -2012,23 +2055,23 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check authorization
     if not await check_authorization(update, context):
         return
-
+    
     try:
         # Test OpenStack connection
         if openstack.authenticate():
             status_text = "✅ *Bot Status: Online*\n✅ *OpenStack API: Connected*"
-
+            
             # Check services
             services_text = "\n\n*Available Services:*\n"
             for service_type, url in openstack.service_catalog.items():
                 services_text += f"• `{service_type}`: ✅\n"
-
+            
             status_text += services_text
         else:
             status_text = "✅ *Bot Status: Online*\n❌ *OpenStack API: Connection Failed*"
-
+        
         await update.message.reply_text(status_text, parse_mode='Markdown')
-
+        
     except Exception as e:
         logger.error(f"Error in status command: {str(e)}")
         await update.message.reply_text("❌ Error checking status.")
@@ -2040,15 +2083,15 @@ def main():
     if not bot_token:
         logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
         return
-
+    
     # Create application
     application = Application.builder().token(bot_token).build()
-
+    
     # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CallbackQueryHandler(button_handler))
-
+    
     # Test OpenStack connection on startup
     logger.info("Testing OpenStack connection...")
     if openstack.authenticate():
@@ -2056,7 +2099,7 @@ def main():
         logger.info(f"Available services: {list(openstack.service_catalog.keys())}")
     else:
         logger.error("❌ OpenStack connection failed!")
-
+    
     # Start the bot
     logger.info("Starting OpenStack Telegram Bot...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
