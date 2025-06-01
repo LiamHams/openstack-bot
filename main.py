@@ -902,6 +902,10 @@ async def show_server_details(query, context, server_id):
         # Store server info for button actions
         context.user_data['detail_server'] = server
         
+        # Initialize server_map if it doesn't exist
+        if 'server_map' not in context.user_data:
+            context.user_data['server_map'] = {}
+        
         # Find server index for callback data
         server_index = None
         for idx, srv_id in context.user_data.get('server_map', {}).items():
@@ -918,8 +922,7 @@ async def show_server_details(query, context, server_id):
                 server_index = "0"
                 context.user_data['server_map'] = {"0": server_id}
             else:
-                server_index = str(len(servers))
-                servers.append(server)
+                server_index = str(len(servers) - 1) # Use the last index
                 context.user_data['server_map'][server_index] = server_id
         
         # Add buttons for IP management
@@ -1329,6 +1332,7 @@ async def do_associate_ip(query, context, ip_index):
         # Get server ports
         ports = openstack.get_server_ports(server_id)
         if not ports:
+            logger.info(f"No ports found for server {server_id}. Creating a new port.")
             # Try to create a port
             public_network_id = openstack.get_public_network_id()
             if not public_network_id:
@@ -1337,6 +1341,7 @@ async def do_associate_ip(query, context, ip_index):
             
             port = openstack.create_port(public_network_id, server_id)
             if not port:
+                logger.error(f"Failed to create port for server {server_id}.")
                 await query.edit_message_text(
                     "❌ Failed to create port for server.\n\n"
                     "Please check logs for more details."
@@ -1344,13 +1349,27 @@ async def do_associate_ip(query, context, ip_index):
                 return
             
             port_id = port['id']
+            logger.info(f"Successfully created port {port_id} for server {server_id}.")
         else:
-            # Use existing port
-            port_id = ports[0]['id']
+            # Check for ports with fixed IPs
+            eligible_ports = [port for port in ports if port.get('fixed_ips')]
+            
+            if not eligible_ports:
+                logger.warning(f"No ports with fixed IPs found for server {server_id}.")
+                await query.edit_message_text(
+                    "❌ No suitable network port found for this server.\n\n"
+                    "Please ensure the server has a port with a valid fixed IP address."
+                )
+                return
+            
+            # Use existing port with fixed IP
+            port_id = eligible_ports[0]['id']
+            logger.info(f"Using existing port {port_id} for server {server_id}.")
         
         # Associate floating IP with port
         result = openstack.associate_floating_ip(ip_id, port_id)
         if not result:
+            logger.error(f"Failed to associate floating IP {ip_id} with server {server_id}.")
             await query.edit_message_text(
                 "❌ Failed to associate floating IP with server.\n\n"
                 "Please check logs for more details."
