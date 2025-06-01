@@ -8,7 +8,7 @@ import os
 import logging
 import json
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 import asyncio
@@ -72,8 +72,9 @@ class OpenStackAPI:
                 self.token = response.headers.get('X-Subject-Token')
                 token_data = response.json()
                 
-                # Parse token expiration
+                # Parse token expiration - ensure timezone awareness
                 expires_at = token_data['token']['expires_at']
+                # Convert to timezone-aware datetime
                 self.token_expires = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
                 
                 # Store service catalog
@@ -98,7 +99,10 @@ class OpenStackAPI:
         """Check if current token is still valid"""
         if not self.token or not self.token_expires:
             return False
-        return datetime.now() < self.token_expires - timedelta(minutes=5)
+        
+        # Ensure we're comparing timezone-aware datetimes
+        now = datetime.now(timezone.utc)
+        return now < self.token_expires - timedelta(minutes=5)
     
     def get_headers(self):
         """Get headers with valid token"""
