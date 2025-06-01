@@ -340,7 +340,6 @@ print_success "Update completed!"
 echo "📁 Backup location: $BACKUP_DIR"
 echo "📝 To view logs: journalctl -u openstack-bot -f"
 echo "🔧 To check status: $BOT_DIR/status.sh"
-
 EOF
 
 # Auto-update script with scheduling
@@ -484,4 +483,67 @@ echo "📝 Current cron jobs:"
 crontab -l | grep -E "(openstack|auto-update)" || echo "No related cron jobs found"
 echo ""
 echo "🔧 To check update logs: tail -f $BOT_DIR/auto-update.log"
-echo "🔧 To test auto-update: $BOT_DIR/auto-update.sh --check-only
+echo "🔧 To test auto-update: $BOT_DIR/auto-update.sh --check-only"
+EOF
+
+# Install CLI menu
+echo "🖥️ Installing CLI menu..."
+if [ -f "$BOT_DIR/op-bot-cli.sh" ]; then
+    ln -sf "$BOT_DIR/op-bot-cli.sh" /usr/local/bin/op-bot
+    chmod +x /usr/local/bin/op-bot
+    echo "✅ CLI menu installed (use 'op-bot' command)"
+else
+    echo "ℹ️ CLI menu script not found, skipping"
+fi
+
+# Make scripts executable
+chmod +x $BOT_DIR/*.sh
+
+# Check if config needs to be updated
+echo ""
+echo "🔧 Checking configuration..."
+if grep -q "your_telegram_bot_token_here" $BOT_DIR/config.env; then
+    echo "⚠️ Configuration needs to be updated!"
+    CONFIG_NEEDS_UPDATE=true
+else
+    echo "ℹ️ Configuration appears to be set"
+    CONFIG_NEEDS_UPDATE=false
+fi
+
+echo ""
+echo "✅ Installation completed successfully!"
+echo ""
+
+if [ "$CONFIG_NEEDS_UPDATE" = true ]; then
+    echo "📋 IMPORTANT - Next steps:"
+    echo "1. Edit the configuration file: nano $BOT_DIR/config.env"
+    echo "2. Replace 'your_telegram_bot_token_here' with your actual bot token"
+    echo "3. Start the bot: $BOT_DIR/start.sh"
+else
+    echo "📋 Next steps:"
+    echo "1. Review the configuration file: nano $BOT_DIR/config.env"
+    echo "2. Start the bot: $BOT_DIR/start.sh"
+fi
+
+echo ""
+echo "🛠️ Available commands:"
+echo "• CLI Menu: op-bot"
+echo "• Start bot: $BOT_DIR/start.sh"
+echo "• Stop bot: $BOT_DIR/stop.sh"
+echo "• Check status: $BOT_DIR/status.sh"
+echo "• Restart bot: $BOT_DIR/restart.sh"
+echo "• Update bot: $BOT_DIR/update.sh"
+echo "• Setup Auto-Update: $BOT_DIR/setup-cron.sh"
+echo "• Uninstall: $BOT_DIR/uninstall.sh"
+echo ""
+echo "📝 Logs location: $BOT_DIR/openstack_bot.log"
+echo "📊 Service logs: journalctl -u openstack-bot -f"
+echo "⚙️ Auto-Update logs: $BOT_DIR/auto-update.log"
+echo ""
+echo "⚠️ Don't forget to:"
+echo "1. Create a Telegram bot via @BotFather"
+echo "2. Get the bot token and add it to config.env"
+echo "3. Configure your firewall if needed"
+echo ""
+echo "🚀 To start the bot now, run: $BOT_DIR/start.sh"
+echo "🖥️ To use the CLI menu, run: op-bot"
