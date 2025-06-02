@@ -263,51 +263,49 @@ class OpenStackAPI:
             logger.error(f"Error getting ports: {str(e)}")
             return None
     
-    def get_public_network_id(self):
-        """Get the ID of the public network"""
+    def get_public_networks(self):
+        """Get all public/external networks (including public-167 and public-431)"""
         try:
             networks = self.get_networks()
             if not networks:
+                return []
+            
+            # Look for networks with router:external=True or names containing 'public'
+            public_networks = []
+            for network in networks:
+                if (network.get('router:external', False) or 
+                    'public' in network.get('name', '').lower()):
+                    public_networks.append(network)
+                    logger.info(f"Found public network: {network['name']} ({network['id']})")
+            
+            return public_networks
+            
+        except Exception as e:
+            logger.error(f"Error getting public networks: {str(e)}")
+            return []
+    
+    def get_public_network_id(self):
+        """Get the ID of a public network (prefer public-167 or public-431)"""
+        try:
+            public_networks = self.get_public_networks()
+            if not public_networks:
+                logger.warning("No public networks found")
                 return None
             
-            # Look for a network with router:external=True
-            for network in networks:
-                if network.get('router:external', False):
+            # Prefer networks with specific names
+            for network in public_networks:
+                name = network.get('name', '').lower()
+                if 'public-167' in name or 'public-431' in name:
+                    logger.info(f"Using preferred public network: {network['name']}")
                     return network['id']
             
-            # If no external network found, return None
-            logger.warning("No public network found")
-            return None
+            # Use the first available public network
+            network = public_networks[0]
+            logger.info(f"Using public network: {network['name']}")
+            return network['id']
             
         except Exception as e:
             logger.error(f"Error getting public network ID: {str(e)}")
-            return None
-    
-    def get_routers(self):
-        """Get list of all routers"""
-        try:
-            headers = self.get_headers()
-            if not headers:
-                return None
-                
-            network_url = self.service_catalog.get('network')
-            if not network_url:
-                logger.error("Network service not found in catalog")
-                return None
-                
-            response = requests.get(
-                f"{network_url}/v2.0/routers",
-                headers=headers
-            )
-            
-            if response.status_code == 200:
-                return response.json()['routers']
-            else:
-                logger.error(f"Failed to get routers: {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Error getting routers: {str(e)}")
             return None
     
     def get_subnets(self):
@@ -337,72 +335,6 @@ class OpenStackAPI:
             logger.error(f"Error getting subnets: {str(e)}")
             return None
     
-    def find_networks_with_external_gateway(self):
-        """Find networks that have external gateway access"""
-        try:
-            routers = self.get_routers()
-            subnets = self.get_subnets()
-            
-            if not routers or not subnets:
-                return []
-            
-            # Find routers with external gateways
-            external_routers = []
-            for router in routers:
-                if router.get('external_gateway_info') and router['external_gateway_info'].get('network_id'):
-                    external_routers.append(router['id'])
-            
-            # Find subnets connected to these routers
-            connected_networks = set()
-            for subnet in subnets:
-                if subnet.get('gateway_ip') and any(port.get('device_id') in external_routers for port in self.get_ports() or [] if port.get('network_id') == subnet['network_id']):
-                    connected_networks.add(subnet['network_id'])
-            
-            return list(connected_networks)
-            
-        except Exception as e:
-            logger.error(f"Error finding networks with external gateway: {str(e)}")
-            return []
-    
-    def create_port(self, network_id, device_id=None):
-        """Create a new port on the specified network"""
-        try:
-            headers = self.get_headers()
-            if not headers:
-                return None
-                
-            network_url = self.service_catalog.get('network')
-            if not network_url:
-                logger.error("Network service not found in catalog")
-                return None
-            
-            port_data = {
-                "port": {
-                    "network_id": network_id
-                }
-            }
-            
-            # If device_id is provided, associate port with the device
-            if device_id:
-                port_data["port"]["device_id"] = device_id
-                port_data["port"]["device_owner"] = "compute:nova"
-            
-            response = requests.post(
-                f"{network_url}/v2.0/ports",
-                headers=headers,
-                json=port_data
-            )
-            
-            if response.status_code in [201, 200]:
-                return response.json()['port']
-            else:
-                logger.error(f"Failed to create port: {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Error creating port: {str(e)}")
-            return None
-    
     def allocate_floating_ip(self, floating_network_id=None):
         """Allocate a new floating IP"""
         try:
@@ -415,7 +347,7 @@ class OpenStackAPI:
                 logger.error("Network service not found in catalog")
                 return None
             
-            # If no network ID provided, try to get the public network
+            # If no network ID provided, try to get a public network
             if not floating_network_id:
                 floating_network_id = self.get_public_network_id()
                 if not floating_network_id:
@@ -435,7 +367,9 @@ class OpenStackAPI:
             )
             
             if response.status_code in [201, 200]:
-                return response.json()['floatingip']
+                result = response.json()['floatingip']
+                logger.info(f"Allocated floating IP: {result['floating_ip_address']}")
+                return result
             else:
                 logger.error(f"Failed to allocate floating IP: {response.status_code} - {response.text}")
                 return None
@@ -469,7 +403,9 @@ class OpenStackAPI:
             )
             
             if response.status_code in [200, 202]:
-                return response.json()['floatingip']
+                result = response.json()['floatingip']
+                logger.info(f"Associated floating IP {result['floating_ip_address']} with port {port_id}")
+                return result
             else:
                 logger.error(f"Failed to associate floating IP: {response.status_code} - {response.text}")
                 return None
@@ -557,7 +493,11 @@ class OpenStackAPI:
             )
             
             if response.status_code == 200:
-                return response.json()['ports']
+                ports = response.json()['ports']
+                logger.info(f"Found {len(ports)} ports for server {server_id}")
+                for port in ports:
+                    logger.info(f"Port {port['id']}: fixed_ips={port.get('fixed_ips', [])}")
+                return ports
             else:
                 logger.error(f"Failed to get server ports: {response.status_code} - {response.text}")
                 return None
@@ -567,54 +507,85 @@ class OpenStackAPI:
             return None
     
     def get_suitable_port_for_floating_ip(self, server_id):
-        """Get a suitable port for floating IP association"""
+        """Get a suitable port for floating IP association (must have fixed IPv4 addresses)"""
         try:
             # Get server ports
             ports = self.get_server_ports(server_id)
             if not ports:
-                logger.info(f"No ports found for server {server_id}")
+                logger.warning(f"No ports found for server {server_id}")
                 return None
             
-            # Get networks with external gateway access
-            external_networks = self.find_networks_with_external_gateway()
-            
-            # Find a port on a network with external access
+            # Find a port with fixed IPv4 addresses
             for port in ports:
-                if port.get('fixed_ips') and port['network_id'] in external_networks:
-                    logger.info(f"Found suitable port {port['id']} on network {port['network_id']}")
-                    return port
+                fixed_ips = port.get('fixed_ips', [])
+                if fixed_ips:
+                    # Check if any fixed IP is IPv4
+                    for fixed_ip in fixed_ips:
+                        ip_address = fixed_ip.get('ip_address', '')
+                        # Simple IPv4 check (contains dots and no colons)
+                        if '.' in ip_address and ':' not in ip_address:
+                            logger.info(f"Found suitable port {port['id']} with IPv4 address {ip_address}")
+                            return port
             
-            # If no suitable port found, try to use any port with fixed IPs
-            for port in ports:
-                if port.get('fixed_ips'):
-                    logger.warning(f"Using port {port['id']} without confirmed external access")
-                    return port
-            
-            logger.warning(f"No suitable ports found for server {server_id}")
+            logger.warning(f"No ports with fixed IPv4 addresses found for server {server_id}")
             return None
             
         except Exception as e:
             logger.error(f"Error finding suitable port: {str(e)}")
             return None
+    
+    def get_networks_for_fixed_ip(self):
+        """Get all networks that can be used for adding fixed IPs"""
+        try:
+            networks = self.get_networks()
+            if not networks:
+                logger.error("Failed to retrieve networks")
+                return []
             
-    # New methods for managing fixed IPs
+            # Show all networks except external ones (but be more permissive)
+            available_networks = []
+            for network in networks:
+                # Skip only clearly external networks
+                if network.get('router:external', False):
+                    logger.info(f"Skipping external network: {network['name']}")
+                    continue
+                
+                # Include all other networks
+                available_networks.append(network)
+                logger.info(f"Available network for fixed IP: {network['name']} ({network['id']})")
+            
+            if not available_networks:
+                # If no networks found with the filter, show all networks
+                logger.warning("No non-external networks found, showing all networks")
+                available_networks = networks
+            
+            return available_networks
+            
+        except Exception as e:
+            logger.error(f"Error getting networks for fixed IP: {str(e)}")
+            return []
+            
+    # Fixed IP management methods
     def add_fixed_ip(self, server_id, network_id):
         """Add a fixed IP to a server from a specific network"""
         try:
             headers = self.get_headers()
             if not headers:
-                return None
+                logger.error("Failed to get authentication headers")
+                return False
                 
             compute_url = self.service_catalog.get('compute')
             if not compute_url:
                 logger.error("Compute service not found in catalog")
-                return None
+                return False
             
             action_data = {
                 "addFixedIp": {
                     "networkId": network_id
                 }
             }
+            
+            logger.info(f"Adding fixed IP to server {server_id} from network {network_id}")
             
             response = requests.post(
                 f"{compute_url}/servers/{server_id}/action",
@@ -623,6 +594,7 @@ class OpenStackAPI:
             )
             
             if response.status_code in [202, 204]:
+                logger.info(f"Successfully added fixed IP to server {server_id}")
                 return True
             else:
                 logger.error(f"Failed to add fixed IP: {response.status_code} - {response.text}")
@@ -637,18 +609,20 @@ class OpenStackAPI:
         try:
             headers = self.get_headers()
             if not headers:
-                return None
+                return False
                 
             compute_url = self.service_catalog.get('compute')
             if not compute_url:
                 logger.error("Compute service not found in catalog")
-                return None
+                return False
             
             action_data = {
                 "removeFixedIp": {
                     "address": ip_address
                 }
             }
+            
+            logger.info(f"Removing fixed IP {ip_address} from server {server_id}")
             
             response = requests.post(
                 f"{compute_url}/servers/{server_id}/action",
@@ -657,6 +631,7 @@ class OpenStackAPI:
             )
             
             if response.status_code in [202, 204]:
+                logger.info(f"Successfully removed fixed IP {ip_address} from server {server_id}")
                 return True
             else:
                 logger.error(f"Failed to remove fixed IP: {response.status_code} - {response.text}")
@@ -665,43 +640,6 @@ class OpenStackAPI:
         except Exception as e:
             logger.error(f"Error removing fixed IP: {str(e)}")
             return False
-
-    def attach_interface(self, server_id, network_id, port_id=None):
-        """Attach a network interface to a server"""
-        try:
-            headers = self.get_headers()
-            if not headers:
-                return None
-                
-            compute_url = self.service_catalog.get('compute')
-            if not compute_url:
-                logger.error("Compute service not found in catalog")
-                return None
-            
-            interface_data = {
-                "interfaceAttachment": {
-                    "net_id": network_id
-                }
-            }
-            
-            if port_id:
-                interface_data["interfaceAttachment"]["port_id"] = port_id
-            
-            response = requests.post(
-                f"{compute_url}/servers/{server_id}/os-interface",
-                headers=headers,
-                json=interface_data
-            )
-            
-            if response.status_code in [200, 202]:
-                return response.json()['interfaceAttachment']
-            else:
-                logger.error(f"Failed to attach interface: {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Error attaching interface: {str(e)}")
-            return None
 
 # Initialize OpenStack API
 openstack = OpenStackAPI()
@@ -1144,11 +1082,12 @@ async def add_floating_ip_menu(query, context):
 async def allocate_floating_ip(query):
     """Allocate a new floating IP"""
     try:
-        # Get public network ID
+        # Get public network ID (will prefer public-167 or public-431)
         public_network_id = openstack.get_public_network_id()
         if not public_network_id:
             await query.edit_message_text(
                 "❌ Failed to find public network for floating IP allocation.\n\n"
+                "Available public networks: public-167, public-431\n"
                 "Please check logs for more details."
             )
             return
@@ -1387,34 +1326,21 @@ async def do_associate_ip(query, context, ip_index):
             await query.edit_message_text("❌ Invalid operation. Please try again.")
             return
         
-        # Get a suitable port for floating IP association
+        # Get a suitable port for floating IP association (must have fixed IPv4 addresses)
         suitable_port = openstack.get_suitable_port_for_floating_ip(server_id)
         
         if not suitable_port:
-            # Try to find networks with external gateway access
-            external_networks = openstack.find_networks_with_external_gateway()
-            
-            if external_networks:
-                # Try to attach interface to a network with external access
-                for network_id in external_networks:
-                    interface = openstack.attach_interface(server_id, network_id)
-                    if interface:
-                        # Get the new port
-                        suitable_port = openstack.get_suitable_port_for_floating_ip(server_id)
-                        if suitable_port:
-                            break
-            
-            if not suitable_port:
-                await query.edit_message_text(
-                    "❌ *Network Configuration Issue*\n\n"
-                    "This server doesn't have a network interface that can reach the external network.\n\n"
-                    "Possible solutions:\n"
-                    "• Ensure the server is connected to a network with a router\n"
-                    "• Check that the router has an external gateway\n"
-                    "• Contact your network administrator\n\n"
-                    "Technical details: No suitable port found for floating IP association."
-                )
-                return
+            await query.edit_message_text(
+                "❌ *No Suitable Port Found*\n\n"
+                "This server doesn't have any ports with fixed IPv4 addresses.\n\n"
+                "**Solution:** Add a fixed IP to the server first:\n"
+                "1. Go to 'Manage Fixed IPs'\n"
+                "2. Select this server\n"
+                "3. Add a fixed IP from a private network\n"
+                "4. Then try associating the floating IP again\n\n"
+                "**Technical:** Floating IPs must be associated with ports that already have private IP addresses."
+            )
+            return
         
         port_id = suitable_port['id']
         logger.info(f"Using port {port_id} for floating IP association")
@@ -1437,7 +1363,7 @@ async def do_associate_ip(query, context, ip_index):
         text += f"IP Address: `{result['floating_ip_address']}`\n"
         text += f"Fixed IP: `{result.get('fixed_ip_address', 'N/A')}`\n"
         text += f"Status: `{result['status']}`\n\n"
-        text += "The IP has been successfully associated with the server."
+        text += "The floating IP has been successfully associated with the server's private IP."
         
         keyboard = [
             [InlineKeyboardButton("🔙 Back to Floating IPs", callback_data='list_floating_ips')],
@@ -1727,17 +1653,21 @@ async def select_network_for_fixed_ip(query, context, server_index):
             await query.edit_message_text("❌ Server not found. Please try again.")
             return
         
-        # Get all networks
-        networks = openstack.get_networks()
-        if not networks:
-            await query.edit_message_text("❌ Failed to retrieve networks.")
-            return
-        
-        # Filter for internal networks (not external) - show all available networks
-        available_networks = [net for net in networks if not net.get('router:external', False)]
+        # Get all networks that can be used for fixed IPs
+        available_networks = openstack.get_networks_for_fixed_ip()
         
         if not available_networks:
-            await query.edit_message_text("❌ No internal networks found for adding fixed IPs.")
+            await query.edit_message_text(
+                "❌ *No Networks Available for Fixed IPs*\n\n"
+                "This could be due to:\n"
+                "• No networks configured in your project\n"
+                "• All networks are external/public only\n"
+                "• Network service connectivity issues\n\n"
+                "Please contact your administrator to:\n"
+                "• Create private networks\n"
+                "• Configure internal subnets\n"
+                "• Check network permissions"
+            )
             return
         
         # Store networks with indices
@@ -1759,13 +1689,15 @@ async def select_network_for_fixed_ip(query, context, server_index):
                 return
         
         text = f"🌐 *Select Network for {server['name']}*\n\n"
-        text += "Choose a network to add a fixed IP from:"
+        text += f"Choose a network to add a fixed IP from:\n"
+        text += f"Found {len(available_networks)} available networks\n\n"
         
         keyboard = []
         for i, network in enumerate(available_networks):
             status_emoji = "🟢" if network['status'] == 'ACTIVE' else "🔴"
+            network_type = "🌍" if network.get('router:external', False) else "🏠"
             keyboard.append([InlineKeyboardButton(
-                f"{status_emoji} {network['name']}",
+                f"{status_emoji} {network_type} {network['name']}",
                 callback_data=f"select_network|{i}"
             )])
         
@@ -1826,7 +1758,8 @@ async def confirm_add_fixed_ip(query, context, network_index):
         text += f"Are you sure you want to add a fixed IP from network:\n"
         text += f"`{network['name']}`\n\n"
         text += f"to server:\n"
-        text += f"`{server['name']}`?"
+        text += f"`{server['name']}`?\n\n"
+        text += "This will assign a private IP address to the server from the selected network."
         
         keyboard = [
             [InlineKeyboardButton("✅ Yes, Add IP", callback_data=f"confirm_add_fixed_ip|{network_index}")],
@@ -1856,19 +1789,27 @@ async def do_add_fixed_ip(query, context, network_index):
             await query.edit_message_text("❌ Invalid operation. Please try again.")
             return
         
+        logger.info(f"Attempting to add fixed IP: server_id={server_id}, network_id={network_id}")
+        
         # Add fixed IP
         success = openstack.add_fixed_ip(server_id, network_id)
         if not success:
             await query.edit_message_text(
-                "❌ Failed to add fixed IP to server.\n\n"
-                "Please check logs for more details."
+                "❌ *Failed to Add Fixed IP*\n\n"
+                "This could be due to:\n"
+                "• Network configuration issues\n"
+                "• Server not compatible with selected network\n"
+                "• Subnet capacity limitations\n"
+                "• Permission restrictions\n\n"
+                "Please check the logs for detailed error information."
             )
             return
         
         # Success message
         text = "✅ *Fixed IP Added Successfully*\n\n"
         text += "A new fixed IP has been successfully added to the server.\n\n"
-        text += "The server will now have an additional IP address from the selected network."
+        text += "The server now has an additional private IP address from the selected network.\n\n"
+        text += "**Note:** You can now use this private IP to associate floating IPs."
         
         keyboard = [
             [InlineKeyboardButton("🔙 Back to Server IPs", callback_data=f'select_server_for_fixed_ip|{server_index}')],
@@ -1913,7 +1854,10 @@ async def confirm_remove_fixed_ip(query, context, ip_address):
         text += f"`{ip_address}`\n\n"
         text += f"from server:\n"
         text += f"`{server['name']}`?\n\n"
-        text += "This action cannot be undone."
+        text += "**Warning:** This action cannot be undone and may affect:\n"
+        text += "• Associated floating IPs\n"
+        text += "• Network connectivity\n"
+        text += "• Running services"
         
         # Store IP for removal
         context.user_data['confirm_remove_ip'] = ip_address
@@ -1946,18 +1890,26 @@ async def do_remove_fixed_ip(query, context, ip_index):
             await query.edit_message_text("❌ Invalid operation. Please try again.")
             return
         
+        logger.info(f"Attempting to remove fixed IP: server_id={server_id}, ip_address={ip_address}")
+        
         # Remove fixed IP
         success = openstack.remove_fixed_ip(server_id, ip_address)
         if not success:
             await query.edit_message_text(
-                "❌ Failed to remove fixed IP from server.\n\n"
-                "Please check logs for more details."
+                "❌ *Failed to Remove Fixed IP*\n\n"
+                "This could be due to:\n"
+                "• IP address is still in use\n"
+                "• Associated floating IP must be removed first\n"
+                "• Network configuration restrictions\n"
+                "• Permission limitations\n\n"
+                "Please check the logs for detailed error information."
             )
             return
         
         # Success message
         text = "✅ *Fixed IP Removed Successfully*\n\n"
-        text += f"Fixed IP `{ip_address}` has been successfully removed from the server."
+        text += f"Fixed IP `{ip_address}` has been successfully removed from the server.\n\n"
+        text += "The server no longer has this IP address assigned."
         
         keyboard = [
             [InlineKeyboardButton("🔙 Back to Server IPs", callback_data=f'select_server_for_fixed_ip|{server_index}')],
@@ -1993,15 +1945,20 @@ async def show_help(query):
 • 📋 Get detailed server information
 
 *Floating IP Management:*
-• Allocate new floating IPs
-• Associate IPs with servers
+• Allocate new floating IPs from public-167/public-431
+• Associate IPs with servers (requires private IP first)
 • Disassociate IPs from servers
 • Delete floating IPs
 
 *Fixed IP Management:*
-• Add fixed IPs to servers from networks
+• Add fixed IPs to servers from private networks
 • Remove fixed IPs from servers
 • View current IP assignments
+
+*Important Notes:*
+• Floating IPs require servers to have private IPs first
+• Add fixed IPs before associating floating IPs
+• Private IP ranges can be created in OpenStack
 
 *Status Indicators:*
 • 🟢 Active/Available
@@ -2066,6 +2023,13 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for service_type, url in openstack.service_catalog.items():
                 services_text += f"• `{service_type}`: ✅\n"
             
+            # Check public networks
+            public_networks = openstack.get_public_networks()
+            if public_networks:
+                services_text += f"\n*Public Networks Found:* {len(public_networks)}\n"
+                for net in public_networks[:3]:  # Show first 3
+                    services_text += f"• `{net['name']}`\n"
+            
             status_text += services_text
         else:
             status_text = "✅ *Bot Status: Online*\n❌ *OpenStack API: Connection Failed*"
@@ -2097,6 +2061,15 @@ def main():
     if openstack.authenticate():
         logger.info("✅ OpenStack connection successful!")
         logger.info(f"Available services: {list(openstack.service_catalog.keys())}")
+        
+        # Test public networks
+        public_networks = openstack.get_public_networks()
+        if public_networks:
+            logger.info(f"Found {len(public_networks)} public networks:")
+            for net in public_networks:
+                logger.info(f"  - {net['name']} ({net['id']})")
+        else:
+            logger.warning("No public networks found!")
     else:
         logger.error("❌ OpenStack connection failed!")
     
